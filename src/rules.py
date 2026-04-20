@@ -1,98 +1,72 @@
 # rules.py
 
-def is_in_check(board, side):
-    b = board.board
+from bitboards import (
+    ROOK_RAYS,
+    KNIGHT_ATTACKERS,
+    PAWN_ATTACKERS_RED,
+    PAWN_ATTACKERS_BLACK,
+)
 
-    # ======================
-    # 找将的位置
-    # ======================
-    king_pos = -1
-    target = 1 if side > 0 else -1
+ORTHO_DIRECTIONS = ("up", "down", "left", "right")
 
-    for i in range(90):
-        if b[i] == target:
-            king_pos = i
-            break
 
-    if king_pos == -1:
-        return False  # 理论不应该发生
+def _line_attacked(board_array, target_pos, enemy_side):
+    for direction in ORTHO_DIRECTIONS:
+        first_blocker_seen = False
 
-    x, y = king_pos % 9, king_pos // 9
+        for sq in ROOK_RAYS[direction][target_pos]:
+            piece = board_array[sq]
+            if piece == 0:
+                continue
 
-    # ======================
-    # 1️⃣ 车 / 将（直线攻击）
-    # ======================
-    for dx, dy in [(1,0), (-1,0), (0,1), (0,-1)]:
-        nx, ny = x + dx, y + dy
-
-        blocked = False
-
-        while 0 <= nx < 9 and 0 <= ny < 10:
-            idx = ny * 9 + nx
-            piece = b[idx]
-
-            if piece != 0:
-                # 第一颗棋
-                if not blocked:
-                    # 敌方车 或 敌方将（对脸）
-                    if (piece > 0) != (side > 0):
-                        if abs(piece) == 2 or abs(piece) == 1:
-                            return True
-                    blocked = True
-                else:
-                    # 第二颗棋 → 炮
-                    if (piece > 0) != (side > 0):
-                        if abs(piece) == 4:
-                            return True
-                    break
-
-            nx += dx
-            ny += dy
-
-    # ======================
-    # 2️⃣ 马攻击（蹩马腿）
-    # ======================
-    knight_patterns = [
-        (2,1,1,0), (2,-1,1,0),
-        (-2,1,-1,0), (-2,-1,-1,0),
-        (1,2,0,1), (1,-2,0,-1),
-        (-1,2,0,1), (-1,-2,0,-1),
-    ]
-
-    for dx, dy, bx, by in knight_patterns:
-        bx_, by_ = x + bx, y + by
-
-        if not (0 <= bx_ < 9 and 0 <= by_ < 10):
-            continue
-
-        # 马腿被堵
-        if b[by_ * 9 + bx_] != 0:
-            continue
-
-        nx, ny = x + dx, y + dy
-        if 0 <= nx < 9 and 0 <= ny < 10:
-            idx = ny * 9 + nx
-            piece = b[idx]
-
-            if piece != 0 and (piece > 0) != (side > 0):
-                if abs(piece) == 3:
+            if not first_blocker_seen:
+                if (piece > 0) == (enemy_side > 0):
+                    abs_piece = abs(piece)
+                    if abs_piece == 2 or abs_piece == 1:
+                        return True
+                first_blocker_seen = True
+            else:
+                if (piece > 0) == (enemy_side > 0) and abs(piece) == 4:
                     return True
-
-    # ======================
-    # 3️⃣ 兵攻击
-    # ======================
-    if side > 0:
-        # 红将 → 被黑兵攻击（向下）
-        directions = [(0,1), (-1,0), (1,0)]
-        enemy_pawn = -7
-    else:
-        directions = [(0,-1), (-1,0), (1,0)]
-        enemy_pawn = 7
-
-    for dx, dy in directions:
-        nx, ny = x + dx, y + dy
-        if 0 <= nx < 9 and 0 <= ny < 10:
-            if b[ny * 9 + nx] == enemy_pawn:
-                return True
+                break
 
     return False
+
+
+def _knight_attacked(board_array, target_pos, enemy_side):
+    for from_sq, leg_sq in KNIGHT_ATTACKERS[target_pos]:
+        piece = board_array[from_sq]
+        if piece == 0 or (piece > 0) != (enemy_side > 0):
+            continue
+
+        if abs(piece) == 3 and board_array[leg_sq] == 0:
+            return True
+
+    return False
+
+
+def _pawn_attacked(board_array, target_pos, enemy_side):
+    attackers = PAWN_ATTACKERS_RED[target_pos] if enemy_side > 0 else PAWN_ATTACKERS_BLACK[target_pos]
+    enemy_pawn = 7 if enemy_side > 0 else -7
+
+    for from_sq in attackers:
+        if board_array[from_sq] == enemy_pawn:
+            return True
+
+    return False
+
+
+def is_square_attacked(board, target_pos, by_side):
+    b = board.board
+    return (
+        _line_attacked(b, target_pos, by_side)
+        or _knight_attacked(b, target_pos, by_side)
+        or _pawn_attacked(b, target_pos, by_side)
+    )
+
+
+def is_in_check(board, side):
+    king_pos = board.king_pos.get(side, -1)
+    if king_pos == -1:
+        return False
+    return is_square_attacked(board, king_pos, -side)
